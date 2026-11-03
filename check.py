@@ -1,11 +1,12 @@
 import json
 import os
-import re
 from pathlib import Path
 from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import sync_playwright
 
 MOVIE_URL = "https://egy.voxcinemas.com/movies/avengers-doomsday-infinity-vision"
 STATE_FILE = Path("booking_state.json")
@@ -15,13 +16,25 @@ CINEMAS = {
     "Mall of Egypt",
 }
 
-response = requests.get(
-    MOVIE_URL,
-    timeout=30,
-    headers={"User-Agent": "Mozilla/5.0 (compatible; VOXBookingChecker/1.0)"},
-)
-response.raise_for_status()
-soup = BeautifulSoup(response.text, "html.parser")
+# Load the page in Chromium so VOX can render its showtime links.
+with sync_playwright() as playwright:
+    browser = playwright.chromium.launch()
+    page = browser.new_page(
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36"
+    )
+    page.goto(MOVIE_URL, wait_until="domcontentloaded", timeout=90_000)
+    try:
+        page.wait_for_function(
+            """() => document.querySelectorAll('a[href*=\"/booking/\"]').length > 0
+                || /no showtimes/i.test(document.body.innerText)""",
+            timeout=20_000,
+        )
+    except PlaywrightTimeoutError:
+        pass
+    html = page.content()
+    browser.close()
+
+soup = BeautifulSoup(html, "html.parser")
 
 # Collect actual booking links under each cinema heading.
 bookings = {}
@@ -69,7 +82,7 @@ if new_bookings:
 else:
     print("No new booking links found.")
 
-# Keep every link ever seen so a link that disappears and returns does not spam you.
+# Save every link ever seen to avoid repeat notifications.
 for cinema, showtimes in bookings.items():
     old_links = set(seen.get(cinema, []))
     old_links.update(showtimes)
