@@ -18,7 +18,7 @@ CINEMAS = {
 
 # Load the page in Chromium so VOX can render its showtime links.
 with sync_playwright() as playwright:
-    browser = playwright.chromium.launch()
+    browser = playwright.chromium.launch(args=["--disable-http2"])
     page = browser.new_page(
         user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36"
     )
